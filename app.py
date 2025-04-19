@@ -17,9 +17,9 @@ from googletrans import Translator
 from langdetect import detect_langs
 
 # Download NLTK dependencies
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
+# nltk.download('punkt')
+# nltk.download('stopwords')
+# nltk.download('wordnet')
 
 # Load model dan tokenizer
 @st.cache_resource
