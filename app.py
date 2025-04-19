@@ -24,13 +24,17 @@ from langdetect import detect, detect_langs
 import pickle
 import streamlit as st
 import base64
+import requests
+from io import BytesIO
+import json
+
 
 def get_base64(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode()
 
 # Ganti path ke gambar kamu
-image_base64 = get_base64("purple-mountain-landscape.jpg")
+image_base64 = get_base64("NLP_Streamlit_Background.jpeg")
 
 # Masukin ke CSS
 page_bg_color = f"""
@@ -101,7 +105,7 @@ def get_best_response(user_input, predicted_intent):
     vectorizer = TfidfVectorizer()
     theData = data[data['intent'] == predicted_intent]
     tfidf_matrix = vectorizer.fit_transform(data["instruction"])
-    
+
     user_input_tfidf = vectorizer.transform([user_input])
 
     similarities = cosine_similarity(user_input_tfidf, tfidf_matrix)
@@ -110,17 +114,17 @@ def get_best_response(user_input, predicted_intent):
 
     return data.iloc[best_idx]["response"]
 
-translator = Translator()  
+translator = Translator()
 
 def predict_text(text):
     try:
-     
+
         lang_detect = detect_langs(text)
-        lang_code = lang_detect[0].lang 
+        lang_code = lang_detect[0].lang
         print(f'prob lang_detect : {lang_detect[0].prob}')
 
         if lang_detect[0].prob < 0.9:
-            lang_code = 'en' 
+            lang_code = 'en'
 
         print(f'lang_detect : {lang_code}')
 
@@ -129,32 +133,28 @@ def predict_text(text):
             text = translator.translate(text, src=lang_code, dest="en").text
 
         preprocessed_text = preprocessing(text)
-        print("Preprocessed text:", preprocessed_text)  
+        print("Preprocessed text:", preprocessed_text)
 
-        sequence = tokenizer.texts_to_sequences([preprocessed_text])  
-        print("Tokenized sequence:", sequence)  
+        sequence = tokenizer.texts_to_sequences([preprocessed_text])
+        print("Tokenized sequence:", sequence)
 
-        if not sequence or not sequence[0]:  
-            raise ValueError("I'm a bit confused, please use another sentence.")  
+        if not sequence or not sequence[0]:
+            raise ValueError("I'm a bit confused, please use another sentence.")
 
         x = pad_sequences(sequence)
-        print("Padded sequence shape:", x.shape)  
+        print("Padded sequence shape:", x.shape)
 
         prediction = model.predict(x)
-        response = get_best_response(text, encoded_intent[np.argmax(prediction[0])][0])
+        response = get_best_response(text, encoded_intent[np.argmax(prediction[0])]) # Perbaikan indexing
 
-        response_translated = translator.translate(response, src='en', dest=lang_code).text  
+        response_translated = translator.translate(response, src='en', dest=lang_code).text
 
         return encoded_intent[np.argmax(prediction[0])], response_translated
-    
+
     except Exception as e:
         print(f"Error: {e}")
         return "unknown_intent", "Sorry, I can't understand what you typing. Please type another sentence."
 
-
-# text = 'saya ingin membuat akun, bagaimana cara membuatnya?'
-# intent, response = predict_text(text)
-# print(f'Intent : {intent}\nResponse : {response}')
 
 # Streamlit UI
 st.markdown(
@@ -176,7 +176,7 @@ st.markdown("<h1>🧠 Multi-Language Chatbot with LSTM & TF-IDF</h1>", unsafe_al
 st.markdown('<h1>📝 Input Your Question Below : </h1>', unsafe_allow_html = True)
 
 user_input = st.text_input('Input Your Question : ')
-if st.button("Kirim"):  
+if st.button("Kirim"):
     if user_input:
         intent, response_translated = predict_text(user_input)
 
