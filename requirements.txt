@@ -7,5 +7,5 @@ scikit-learn
 googletrans==4.0.0-rc1
 langdetect
 streamlit
-streamlit-webrtc
+streamlit-webrtc --upgrade
 soundfile
