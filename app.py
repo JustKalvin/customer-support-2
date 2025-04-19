@@ -24,16 +24,16 @@ nltk.download('wordnet')
 # Load model dan tokenizer
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("./NLP_FINAL_MODEL.h5")
+    return tf.keras.models.load_model("NLP_FINAL_MODEL.h5")
 
 @st.cache_resource
 def load_tokenizer():
-    with open("./tokenizer.pkl", "rb") as handle:
+    with open("tokenizer.pkl", "rb") as handle:
         return pickle.load(handle)
 
 @st.cache_resource
 def load_tfidf():
-    data = pd.read_csv('./Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv')
+    data = pd.read_csv('Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv')
     vectorizer = TfidfVectorizer()
     vectorizer.fit(data["instruction"])
     return vectorizer, data
