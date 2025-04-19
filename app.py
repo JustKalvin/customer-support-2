@@ -19,12 +19,23 @@ import requests
 from io import BytesIO
 import base64
 import json
+from streamlit_webrtc import webrtc_streamer, ClientSettings, AudioProcessor
+import soundfile as sf
+import os
 
-
-# Download NLTK dependencies
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
+# Download NLTK dependencies (pastikan ini hanya dijalankan sekali)
+try:
+    nltk.data.find('corpora/punkt')
+except nltk.downloader.DownloadError:
+    nltk.download('punkt')
+try:
+    nltk.data.find('corpora/stopwords')
+except nltk.downloader.DownloadError:
+    nltk.download('stopwords')
+try:
+    nltk.data.find('corpora/wordnet')
+except nltk.downloader.DownloadError:
+    nltk.download('wordnet')
 
 # Load model dan tokenizer
 @st.cache_resource
@@ -61,7 +72,6 @@ encoded_intent = [
     "track_order", "track_refund"
 ]
 
-
 from pathlib import Path
 
 # Load background image as base64
@@ -82,7 +92,6 @@ def set_bg_from_local(image_file):
 
 # Panggil fungsi ini dengan nama file gambarnya
 set_bg_from_local("NLP_Streamlit_Background.jpeg")
-
 
 # Preprocessing function
 def preprocessing(text):
@@ -136,8 +145,7 @@ def predict_text(text):
     except Exception as e:
         return "unknown_intent", "Sorry, I can't understand what you typed."
 
-
-# ------------------------- Streamlit UI -------------------------
+# ------------------------- Streamlit UI with Speech Recognition -------------------------
 # Styling
 st.markdown("""
     <style>
@@ -175,7 +183,7 @@ html, body, [class*="css"]  {
 }
 
 .stApp {
-    background-color: rgba(255,255,255,0); 
+    background-color: rgba(255,255,255,0);
 }
 
 .chat-container {
@@ -219,7 +227,7 @@ html, body, [class*="css"]  {
 
 /* Input field styling */
 input[type="text"] {
-    background-color: #1a1a1a
+    background-color: #1a1a1a;
     padding: 10px;
     border: 2px solid #ffffff;
     border-radius: 6px;
@@ -242,31 +250,91 @@ button[kind="primary"]:hover {
 </style>
 """, unsafe_allow_html=True)
 
-
-
-
 st.markdown("<h1 style='text-align: center;'>🤖 AI Customer Support</h1>", unsafe_allow_html=True)
 
-# Input area
-user_input = st.text_input("Ask me anything...", key="chat_input", value=st.session_state.get("recognized_text", ""))
+# State untuk menyimpan teks yang dikenali dari suara
+if "recognized_text" not in st.session_state:
+    st.session_state["recognized_text"] = ""
+if "audio_data" not in st.session_state:
+    st.session_state["audio_data"] = None
+
+# Konfigurasi WebRTC
+WEBRTC_CLIENT_SETTINGS = ClientSettings(
+    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
+
+# Kelas untuk memproses audio dan menyimpan ke state
+class AudioToTextHandler(AudioProcessor):
+    def __init__(self):
+        self.audio_buffer = []
+        self.sample_rate = 16000  # Contoh sample rate
+        self.recording = False
+
+    def recv(self, frame):
+        if self.recording:
+            sound_wave = frame.to_ndarray(format="s16").reshape(-1)
+            self.audio_buffer.extend(sound_wave.tobytes())
+        return frame.to_ndarray()
+
+    def on_ended(self):
+        if self.audio_buffer:
+            st.session_state["audio_data"] = b"".join(self.audio_buffer)
+            st.experimental_rerun()
+
+# Fungsi untuk memulai perekaman
+def start_recording():
+    st.session_state["audio_data"] = None
+    st.session_state["recognized_text"] = ""
+    st.session_state["audio_handler"].audio_buffer = []
+    st.session_state["audio_handler"].recording = True
+
+# Fungsi untuk menghentikan perekaman
+def stop_recording():
+    st.session_state["audio_handler"].recording = False
+
+# Inisialisasi audio handler di state
+if "audio_handler" not in st.session_state:
+    st.session_state["audio_handler"] = AudioToTextHandler()
+
+webrtc_streamer(
+    key="speech_to_text",
+    client_settings=WEBRTC_CLIENT_SETTINGS,
+    audio_processor_factory=lambda: st.session_state["audio_handler"],
+    media_stream_constraints={"audio": True, "video": False},
+    on_ended=st.session_state["audio_handler"].on_ended,
+)
+
+col1, col2 = st.columns(2)
+if col1.button("Mulai Rekam", on_click=start_recording):
+    st.info("Mulai berbicara...")
+
+if col2.button("Hentikan Rekam", on_click=stop_recording):
+    st.success("Perekaman selesai. Anda bisa mengirim pesan sekarang.")
+
+# Input area (menggunakan nilai dari state jika ada audio yang direkam)
+user_input = st.text_input("Ask me anything (or speak)...", key="chat_input", value=st.session_state.get("recognized_text", ""))
 
 # Proses input pengguna (baik diketik atau dari ucapan)
 if st.button("Kirim"):
     if user_input:
+        # Menampilkan pesan pengguna
+        st.session_state.messages = [{"role": "user", "content": user_input}] if "messages" not in st.session_state else st.session_state.messages + [{"role": "user", "content": user_input}]
+        st.markdown(f"<p class='chat-user'>{user_input}</p>", unsafe_allow_html=True)
+
+        # Prediksi chatbot
         intent, response_translated = predict_text(user_input)
 
-        st.markdown(
-            f"""
-            <div style="border: 2px solid white; padding: 10px; border-radius: 10px; background-color: rgba(255, 255, 255, 0.1); text-align: center;">
-                <p style="color: white; font-size: 22px; font-weight: bold; text-shadow: 2px 2px 4px black;">
-                    🎯 Intent: {intent}
-                </p>
-                <p style="color: white; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px black;">
-                    💬 Response: {response_translated}
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        # Menampilkan respons chatbot
+        st.session_state.messages = st.session_state.messages + [{"role": "bot", "content": response_translated}]
+        st.markdown(f"<p class='chat-bot'>Intent : {intent} <br> {response_translated}</p>", unsafe_allow_html=True)
+        st.session_state["recognized_text"] = "" # Bersihkan input setelah mengirim
     else:
-        st.warning("Mohon masukkan teks terlebih dahulu!")
+        st.warning("Mohon masukkan teks atau rekam suara terlebih dahulu!")
+
+# Menampilkan chat history
+st.write("<div class='chat-container'>", unsafe_allow_html=True)
+if "messages" in st.session_state:
+    for message in st.session_state.messages:
+        role_class = "chat-user" if message["role"] == "user" else "chat-bot"
+        st.markdown(f"<p class='{role_class}'>{message['content']}</p>", unsafe_allow_html=True)
+st.write("</div>", unsafe_allow_html=True)
