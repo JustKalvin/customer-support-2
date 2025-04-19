@@ -1,85 +1,56 @@
+import streamlit as st
+import random
+import time
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import tensorflow as tf
-from tensorflow.keras import datasets, layers, models
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+import pickle
+import string
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords, wordnet
-from nltk.stem import PorterStemmer, WordNetLemmatizer
-import string
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from nltk.stem import WordNetLemmatizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from tensorflow.keras.metrics import Recall, Precision, F1Score
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from googletrans import Translator, LANGUAGES
-from langdetect import detect, detect_langs
-import pickle
-import streamlit as st
-import base64
+from googletrans import Translator
+from langdetect import detect_langs
 import requests
 from io import BytesIO
+import base64
 import json
 
 
-def get_base64(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode()
-
-# Ganti path ke gambar kamu
-image_base64 = get_base64("NLP_Streamlit_Background.jpeg")
-
-# Masukin ke CSS
-page_bg_color = f"""
-<style>
-[data-testid="stAppViewContainer"] {{
-    background-image: url("data:image/jpeg;base64,{image_base64}");
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-}}
-</style>
-"""
-
-st.markdown(page_bg_color, unsafe_allow_html=True)
+# Download NLTK dependencies
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
 
 # Load model dan tokenizer
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model("NLP_FINAL_MODEL.h5")  # Ganti dengan path model Anda
-    return model
+    return tf.keras.models.load_model("./NLP_FINAL_MODEL.h5")
 
 @st.cache_resource
 def load_tokenizer():
-  with open("tokenizer.pkl", "rb") as handle:
-    tokenizer = pickle.load(handle)  # Load tokenizer dari file
-  return tokenizer  # Ganti dengan tokenizer yang sudah di-train
+    with open("./tokenizer.pkl", "rb") as handle:
+        return pickle.load(handle)
 
 @st.cache_resource
 def load_tfidf():
-    data = pd.read_csv('Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv')
+    data = pd.read_csv('./Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv')
     vectorizer = TfidfVectorizer()
     vectorizer.fit(data["instruction"])
     return vectorizer, data
 
 # Load semua komponen
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
-nltk.download('wordnet')
 model = load_model()
 tokenizer = load_tokenizer()
 vectorizer, data = load_tfidf()
 translator = Translator()
 lemmatizer = WordNetLemmatizer()
 stop_words = set(stopwords.words('english'))
+
 encoded_intent = [
     "cancel_order", "change_order", "change_shipping_address", "check_cancellation_fee",
     "check_invoice", "check_payment_methods", "check_refund_policy", "complaint",
@@ -89,6 +60,29 @@ encoded_intent = [
     "registration_problems", "review", "set_up_shipping_address", "switch_account",
     "track_order", "track_refund"
 ]
+
+
+from pathlib import Path
+
+# Load background image as base64
+def set_bg_from_local(image_file):
+    with open(image_file, "rb") as img:
+        encoded = base64.b64encode(img.read()).decode()
+    css = f"""
+    <style>
+    .stApp {{
+        background-image: url("data:image/jpeg;base64,{encoded}");
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+# Panggil fungsi ini dengan nama file gambarnya
+set_bg_from_local("NLP_Streamlit_Background.jpeg")
+
 
 # Preprocessing function
 def preprocessing(text):
@@ -101,81 +95,162 @@ def preprocessing(text):
 
 # TF-IDF response retrieval
 def get_best_response(user_input, predicted_intent):
-    print(f'predicted_intent : {predicted_intent}')
-    vectorizer = TfidfVectorizer()
-    theData = data[data['intent'] == predicted_intent]
-    tfidf_matrix = vectorizer.fit_transform(data["instruction"])
+    filtered_data = data[data['intent'] == predicted_intent]
+    if filtered_data.empty:
+        return "I'm sorry, I don't understand your request."
 
+    tfidf_matrix = vectorizer.transform(filtered_data["instruction"])
     user_input_tfidf = vectorizer.transform([user_input])
 
     similarities = cosine_similarity(user_input_tfidf, tfidf_matrix)
-
     best_idx = similarities.argmax()
 
-    return data.iloc[best_idx]["response"]
+    return filtered_data.iloc[best_idx]["response"]
 
-translator = Translator()
-
+# Prediksi chatbot
 def predict_text(text):
     try:
-
         lang_detect = detect_langs(text)
         lang_code = lang_detect[0].lang
-        print(f'prob lang_detect : {lang_detect[0].prob}')
-
         if lang_detect[0].prob < 0.9:
             lang_code = 'en'
-
-        print(f'lang_detect : {lang_code}')
-
 
         if lang_code != 'en':
             text = translator.translate(text, src=lang_code, dest="en").text
 
         preprocessed_text = preprocessing(text)
-        print("Preprocessed text:", preprocessed_text)
-
         sequence = tokenizer.texts_to_sequences([preprocessed_text])
-        print("Tokenized sequence:", sequence)
 
         if not sequence or not sequence[0]:
-            raise ValueError("I'm a bit confused, please use another sentence.")
+            return "unknown_intent", "I'm a bit confused, please use another sentence."
 
         x = pad_sequences(sequence)
-        print("Padded sequence shape:", x.shape)
-
         prediction = model.predict(x)
-        response = get_best_response(text, encoded_intent[np.argmax(prediction[0])]) # Perbaikan indexing
+        predicted_intent = encoded_intent[np.argmax(prediction[0])]
+        response = get_best_response(text, predicted_intent)
 
         response_translated = translator.translate(response, src='en', dest=lang_code).text
 
-        return encoded_intent[np.argmax(prediction[0])], response_translated
+        return predicted_intent, response_translated
 
     except Exception as e:
-        print(f"Error: {e}")
-        return "unknown_intent", "Sorry, I can't understand what you typing. Please type another sentence."
+        return "unknown_intent", "Sorry, I can't understand what you typed."
 
 
-# Streamlit UI
-st.markdown(
-    """
+# ------------------------- Streamlit UI -------------------------
+# Styling
+st.markdown("""
     <style>
-    h1 {
-        font-size: 48px; /* Atur ulang ukuran teks */
-        font-weight: bold;
+    .chat-container {
+        max-width: 700px;
+        margin: auto;
+    }
+    .chat-user {
+        text-align: right;
         color: white;
-        text-shadow: 1px 1px 2px black; /* Bayangan lebih halus */
-        text-align: center;
+        background-color: #0078FF;
+        padding: 8px;
+        border-radius: 10px;
+        display: inline-block;
+        max-width: 80%;
+    }
+    .chat-bot {
+        text-align: left;
+        color: black;
+        background-color: #F0F0F0;
+        padding: 8px;
+        border-radius: 10px;
+        display: inline-block;
+        max-width: 80%;
     }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
-st.markdown("<h1>🧠 Multi-Language Chatbot with LSTM & TF-IDF</h1>", unsafe_allow_html=True)
-st.markdown('<h1>📝 Input Your Question Below : </h1>', unsafe_allow_html = True)
+st.markdown("""
+<style>
+/* Ubah font seluruh aplikasi */
+html, body, [class*="css"]  {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 16px;
+}
 
-user_input = st.text_input('Input Your Question : ')
+.stApp {
+    background-color: rgba(255,255,255,0); 
+}
+
+.chat-container {
+    max-width: 700px;
+    margin: auto;
+    padding: 20px;
+}
+
+/* Efek fade-in untuk bubble */
+@keyframes fadeIn {
+    from {opacity: 0;}
+    to {opacity: 1;}
+}
+
+.chat-user, .chat-bot {
+    padding: 12px 18px;
+    border-radius: 20px;
+    margin: 10px 0;
+    display: inline-block;
+    max-width: 80%;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+/* Chat bubble user */
+.chat-user {
+    text-align: right;
+    background-color: #0078FF;
+    color: white;
+    margin-left: auto;
+    box-shadow: 0px 4px 10px rgba(0,0,0,0.15);
+}
+
+/* Chat bubble bot */
+.chat-bot {
+    text-align: left;
+    background-color: #f9f9f9;
+    color: #333;
+    margin-right: auto;
+    box-shadow: 0px 4px 10px rgba(0,0,0,0.15);
+}
+
+/* Input field styling */
+input[type="text"] {
+    background-color: #1a1a1a
+    padding: 10px;
+    border: 2px solid #ffffff;
+    border-radius: 6px;
+    color: #ffffff;
+}
+
+/* Tombol rekam lebih modern */
+button[kind="primary"] {
+    background: linear-gradient(90deg, #0078FF 0%, #00C6FF 100%);
+    color: white;
+    border-radius: 8px;
+    padding: 10px 20px;
+    border: none;
+    transition: 0.3s;
+}
+button[kind="primary"]:hover {
+    transform: scale(1.05);
+    box-shadow: 0px 4px 12px rgba(0,0,0,0.2);
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+
+
+st.markdown("<h1 style='text-align: center;'>🤖 AI Customer Support</h1>", unsafe_allow_html=True)
+
+# Input area
+user_input = st.text_input("Ask me anything...", key="chat_input", value=st.session_state.get("recognized_text", ""))
+
+# Proses input pengguna (baik diketik atau dari ucapan)
 if st.button("Kirim"):
     if user_input:
         intent, response_translated = predict_text(user_input)
