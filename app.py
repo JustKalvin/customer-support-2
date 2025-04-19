@@ -24,9 +24,6 @@ from langdetect import detect, detect_langs
 import pickle
 import streamlit as st
 import base64
-import speech_recognition as sr
-from streamlit_audio_recorder import audio_recorder
-
 
 def get_base64(image_path):
     with open(image_path, "rb") as img_file:
@@ -178,53 +175,6 @@ st.markdown(
 st.markdown("<h1>🧠 Multi-Language Chatbot with LSTM & TF-IDF</h1>", unsafe_allow_html=True)
 st.markdown('<h1>📝 Input Your Question Below : </h1>', unsafe_allow_html = True)
 
-# Voice input section
-st.markdown('<h1>🎤 Or Use Voice Input : </h1>', unsafe_allow_html = True)
-audio_bytes = audio_recorder(text="Tekan untuk Rekam", icon_size="2x")
-
-def speech_to_text(audio_file):
-    recognizer = sr.Recognizer()
-    try:
-        with audio_file as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data)
-            return text
-    except Exception as e:
-        return f"Speech recognition error: {e}"
-
-if audio_bytes:
-    with open("temp_audio.wav", "wb") as f:
-        f.write(audio_bytes)
-    audio_file = sr.AudioFile("temp_audio.wav")
-    user_input = speech_to_text(audio_file)
-    st.success(f"🗣️ Recognized Text: {user_input}")
-
-# Manual text input fallback
-user_input = st.text_input('Input Your Question : ', value=user_input if audio_bytes else "")
-
-if st.button("Kirim"):
-    if user_input:
-        intent, response_translated = predict_text(user_input)
-
-        st.markdown(
-            f"""
-            <div style="border: 2px solid white; padding: 10px; border-radius: 10px; background-color: rgba(255, 255, 255, 0.1); text-align: center;">
-                <p style="color: white; font-size: 22px; font-weight: bold; text-shadow: 2px 2px 4px black;">
-                    🎯 Intent: {intent}
-                </p>
-                <p style="color: white; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px black;">
-                    💬 Response: {response_translated}
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    else:
-        st.warning("Mohon masukkan teks terlebih dahulu!")
-
-
-
-
 user_input = st.text_input('Input Your Question : ')
 if st.button("Kirim"):  
     if user_input:
@@ -245,4 +195,3 @@ if st.button("Kirim"):
         )
     else:
         st.warning("Mohon masukkan teks terlebih dahulu!")
-
